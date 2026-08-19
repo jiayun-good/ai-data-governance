@@ -1,8 +1,10 @@
 package com.mp.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.spring.service.IService;
 import com.mp.domain.po.DataQualityError;
 import com.mp.domain.po.DataQualityRule;
+import com.mp.domain.vo.DataQualityErrorVO;
 
 import java.util.List;
 import java.util.Map;
@@ -29,4 +31,6 @@ public interface IDataQualityErrorService extends IService<DataQualityError> {
             DataQualityRule rule,
             List<Map<String,Object>> errorData
     );
+
+    IPage<DataQualityErrorVO> queryErrorPage(Long checkId, Integer page, Integer size);
 }
