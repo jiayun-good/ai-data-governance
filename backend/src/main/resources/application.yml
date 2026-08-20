@@ -11,3 +11,19 @@ spring:
 mybatis:
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.mp.domain.po
+
+xxl:
+  job:
+    admin:
+      addresses: http://localhost:8080
+      timeout: 3
+
+    executor:
+      enabled: true
+      appname: ai-data-governance-executor
+      accessToken: default_token
+      address: http://host.docker.internal:9999
+      ip: host.docker.internal
+      port: 9999
+      logpath: ./logs/xxl-job
+      logretentiondays: 30

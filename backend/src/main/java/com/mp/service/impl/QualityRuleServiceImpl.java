@@ -17,6 +17,7 @@ import com.mp.service.IDataQualityErrorService;
 import com.mp.service.QualityRuleService;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +32,7 @@ import java.util.List;
  * @author author
  * @since 2026-08-19
  */
+@Slf4j
 @Service
 public class QualityRuleServiceImpl extends ServiceImpl<DataQualityRuleMapper, DataQualityRule> implements QualityRuleService {
     @Resource
@@ -108,5 +110,39 @@ public class QualityRuleServiceImpl extends ServiceImpl<DataQualityRuleMapper, D
 
         //7. 返回结果
         return Result.success(result);
+    }
+
+    @Override
+    public void executeEnabledRules() {
+        // 1. 查询所有启用的质量规则
+        List<DataQualityRule> rules = lambdaQuery()
+                .eq(DataQualityRule::getStatus, 1)
+                .list();
+        if (rules == null || rules.isEmpty()) {
+            return;
+        }
+        // 2. 一个一个执行
+        for (DataQualityRule rule : rules) {
+            try {
+                log.info(
+                        "开始执行数据质量规则，ruleId={}, ruleName={}",
+                        rule.getId(),
+                        rule.getRuleName()
+                );
+                checkRule(rule.getId());
+                log.info(
+                        "数据质量规则执行完成，ruleId={}",
+                        rule.getId()
+                );
+
+            } catch (Exception e) {
+                log.error(
+                        "数据质量规则执行失败，ruleId={}",
+                        rule.getId(),
+                        e
+                );
+                // 不要因为一个规则失败导致后面的规则全部不执行
+            }
+        }
     }
 }

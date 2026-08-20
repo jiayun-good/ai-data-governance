@@ -24,4 +24,7 @@ public interface QualityRuleService extends IService<DataQualityRule> {
     Result<List<QualityRuleVO>> listRules(String tableName);
 
     Result<QualityCheckResultVO> checkRule(Long ruleId);
+
+    /**批量执行规则方法*/
+    void executeEnabledRules();
 }

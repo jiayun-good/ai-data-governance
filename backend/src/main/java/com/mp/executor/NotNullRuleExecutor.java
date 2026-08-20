@@ -33,15 +33,19 @@ public class NotNullRuleExecutor implements RuleExecutor{
 
 
         //1. 获取数据库连接器
-        DataSourceConnector connector =
-                connectorFactory
-                        .getConnector(dataSource.getType());
+        DataSourceConnector connector = connectorFactory.getConnector(dataSource.getType());
 
         RuleConfig ruleConfig =
                 JSON.parseObject(
                         rule.getRuleConfig(),
                         RuleConfig.class
                 );
+        if (ruleConfig == null) {
+            throw new IllegalArgumentException(
+                    "质量规则配置解析失败，ruleId=" + rule.getId()
+            );
+        }
+
         List<String> conditions = new ArrayList<>();
         if(Boolean.TRUE.equals(ruleConfig.getCheckNull())){
             conditions.add(
