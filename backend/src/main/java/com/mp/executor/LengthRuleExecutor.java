@@ -10,18 +10,19 @@ import com.mp.domain.vo.QualityCheckResultVO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 @Component
-public class FormatRuleExecutor implements RuleExecutor {
+public class LengthRuleExecutor implements RuleExecutor {
 
     @Resource
     private DataSourceConnectorFactory connectorFactory;
 
     @Override
     public String getRuleType() {
-        return "FORMAT";
+        return "LENGTH";
     }
 
     @Override
@@ -37,32 +38,39 @@ public class FormatRuleExecutor implements RuleExecutor {
         String column = rule.getColumnName();
         String table = rule.getTableName();
 
-        if (ruleConfig.getPattern() == null || ruleConfig.getPattern().isEmpty()) {
-            throw new RuntimeException("规则配置错误，FORMAT规则必须配置pattern正则表达式");
+        if (ruleConfig.getMinLength() == null && ruleConfig.getMaxLength() == null) {
+            throw new RuntimeException("规则配置错误，LENGTH规则至少需要配置minLength或maxLength");
         }
 
-        // 1. 查询总数据量
-        String totalSql = "select count(*) from " + table;
-        Long total = connector.count(dataSource, totalSql);
+        // 1. 总数据量
+        Long total = connector.count(dataSource,
+                "select count(*) from " + table);
 
-        // 2. 不符合正则的为异常数据（MySQL REGEXP）
-        String escapedPattern = ruleConfig.getPattern().replace("'", "\\'");
-        String condition = column + " NOT REGEXP '" + escapedPattern + "'";
+        // 2. 构建异常条件：字符长度不在 [minLength, maxLength] 范围内
+        List<String> conditions = new ArrayList<>();
+        if (ruleConfig.getMinLength() != null) {
+            conditions.add("CHAR_LENGTH(" + column + ") < " + ruleConfig.getMinLength());
+        }
+        if (ruleConfig.getMaxLength() != null) {
+            conditions.add("CHAR_LENGTH(" + column + ") > " + ruleConfig.getMaxLength());
+        }
 
-        // 3. 查询异常数据量
-        String errorSql = "select count(*) from " + table + " where " + condition;
-        Long error = connector.count(dataSource, errorSql);
+        String condition = String.join(" or ", conditions);
 
-        // 4. 查询异常数据明细
-        String detailSql = "select * from " + table + " where " + condition;
-        List<Map<String, Object>> errorData = connector.query(dataSource, detailSql);
+        // 3. 异常数据量
+        Long error = connector.count(dataSource,
+                "select count(*) from " + table + " where " + condition);
+
+        // 4. 异常数据明细
+        List<Map<String, Object>> errorData = connector.query(dataSource,
+                "select * from " + table + " where " + condition);
 
         Long success = total - error;
 
         QualityCheckResultVO resultVO = new QualityCheckResultVO();
+        resultVO.setTotal(total);
         resultVO.setErrorCount(error);
         resultVO.setSuccessCount(success);
-        resultVO.setTotal(total);
         resultVO.setErrorData(errorData);
 
         return resultVO;

@@ -12,19 +12,17 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-/**
- * 自定义SQL规则执行器（高级用户专用，AI不生成此类型）
- */
 @Component
-public class CustomSqlRuleExecutor implements RuleExecutor {
+public class EnumRuleExecutor implements RuleExecutor {
 
     @Resource
     private DataSourceConnectorFactory connectorFactory;
 
     @Override
     public String getRuleType() {
-        return "CUSTOM_SQL";
+        return "ENUM";
     }
 
     @Override
@@ -37,23 +35,31 @@ public class CustomSqlRuleExecutor implements RuleExecutor {
             throw new IllegalArgumentException("质量规则配置解析失败，ruleId=" + rule.getId());
         }
 
-        if (ruleConfig.getCustomSql() == null || ruleConfig.getCustomSql().isEmpty()) {
-            throw new RuntimeException("规则配置错误，CUSTOM_SQL规则必须配置customSql");
-        }
-
-        String customSql = ruleConfig.getCustomSql();
+        String column = rule.getColumnName();
         String table = rule.getTableName();
+
+        if (ruleConfig.getValues() == null || ruleConfig.getValues().isEmpty()) {
+            throw new RuntimeException("规则配置错误，ENUM规则必须配置values枚举值列表");
+        }
 
         // 1. 总数据量
         Long total = connector.count(dataSource,
                 "select count(*) from " + table);
 
-        // 2. 用自定义SQL查询异常数据量
-        Long error = connector.count(dataSource,
-                "select count(*) from (" + customSql + ") t");
+        // 2. 构建 NOT IN 条件：值不在枚举列表中的为异常
+        String inValues = ruleConfig.getValues().stream()
+                .map(v -> "'" + v.replace("'", "\\'") + "'")
+                .collect(Collectors.joining(", "));
 
-        // 3. 查询异常数据明细
-        List<Map<String, Object>> errorData = connector.query(dataSource, customSql);
+        String condition = column + " NOT IN (" + inValues + ")";
+
+        // 3. 异常数据量
+        Long error = connector.count(dataSource,
+                "select count(*) from " + table + " where " + condition);
+
+        // 4. 异常数据明细
+        List<Map<String, Object>> errorData = connector.query(dataSource,
+                "select * from " + table + " where " + condition);
 
         Long success = total - error;
 
