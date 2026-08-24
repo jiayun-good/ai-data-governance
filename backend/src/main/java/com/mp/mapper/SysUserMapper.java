@@ -1,8 +1,7 @@
 package com.mp.mapper;
 
-import com.mp.domain.po.SysUser;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import org.apache.ibatis.annotations.Mapper;
+import com.mp.domain.po.SysUser;
 
 /**
  * <p>

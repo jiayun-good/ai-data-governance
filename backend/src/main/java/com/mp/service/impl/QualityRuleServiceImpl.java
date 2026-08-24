@@ -1,8 +1,12 @@
 package com.mp.service.impl;
 
+import java.util.List;
+
+import org.springframework.beans.BeanUtils;
+import org.springframework.stereotype.Service;
+
+import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.mp.common.Result;
-import com.mp.connector.DataSourceConnector;
-import com.mp.connector.DataSourceConnectorFactory;
 import com.mp.domain.dto.QualityRuleDTO;
 import com.mp.domain.po.DataQualityRule;
 import com.mp.domain.po.DataSource;
@@ -15,14 +19,9 @@ import com.mp.mapper.DataSourceMapper;
 import com.mp.service.IDataQualityCheckRecordService;
 import com.mp.service.IDataQualityErrorService;
 import com.mp.service.QualityRuleService;
-import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeanUtils;
-import org.springframework.stereotype.Service;
-
-import java.sql.Connection;
-import java.util.List;
 
 /**
  * <p>

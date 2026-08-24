@@ -2,13 +2,10 @@ package com.mp.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.spring.service.IService;
-import com.mp.common.Result;
 import com.mp.domain.po.DataQualityCheckRecord;
 import com.mp.domain.po.DataQualityRule;
 import com.mp.domain.vo.QualityCheckHistoryVO;
 import com.mp.domain.vo.QualityCheckResultVO;
-
-import java.util.List;
 
 
 /**
