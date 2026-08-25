@@ -42,10 +42,15 @@ def build_detect_context_switch_prompt(desc: str, current_table: str) -> str:
 
 
 def build_generate_rule_prompt(desc: str, table: str,
-                                columns_text: str, history_text: str) -> str:
-    """构建「生成数据质量规则」的 prompt"""
+                                columns_text: str, history_text: str,
+                                knowledge_text: str = "") -> str:
+    """构建「生成数据质量规则」的 prompt
+
+    :param knowledge_text: RAG 检索到的知识库参考资料（可选）
+    """
     return f"""你是一个专业的数据治理专家。请根据用户的业务描述，结合提供的字段元数据，生成一条数据质量规则。
 {history_text}
+{knowledge_text}
 ## 业务描述
 {desc}
 

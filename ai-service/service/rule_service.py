@@ -7,6 +7,7 @@ from prompt.rule_prompt import (
     build_detect_context_switch_prompt,
     build_generate_rule_prompt,
 )
+from rag.retriever import retrieve, format_context
 
 
 def analyze_table(desc: str, tables: list[str]) -> dict:
@@ -84,7 +85,12 @@ def generate_rule(desc: str, table: str, columns: list[dict], history: list[dict
     """
     columns_text = _build_columns_text(columns)
     history_text = _build_history_text(history)
-    prompt = build_generate_rule_prompt(desc, table, columns_text, history_text)
+
+    # RAG 检索：从知识库中获取相关参考资料
+    chunks = retrieve(desc, k=3)
+    knowledge_text = format_context(chunks)
+
+    prompt = build_generate_rule_prompt(desc, table, columns_text, history_text, knowledge_text)
 
     result = chat(prompt)
     json_str = _extract_json(result)
@@ -92,6 +98,16 @@ def generate_rule(desc: str, table: str, columns: list[dict], history: list[dict
 
     # 补充 table 字段（由 Java 端已确定，不需要 AI 再猜）
     data["table"] = table
+
+    # 附加命中的知识片段（供前端展示，Java 端可忽略此字段）
+    data["knowledgeRefs"] = [
+        {
+            "source": c["metadata"].get("source", ""),
+            "snippet": c["content"][:100],
+            "score": c["score"]
+        }
+        for c in chunks
+    ]
     return data
 
 

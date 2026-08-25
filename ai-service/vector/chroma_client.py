@@ -9,14 +9,22 @@ embedding = DashScopeEmbeddings(
     dashscope_api_key=settings.API_KEY
 )
 
-# ChromaDB 服务器运行在 8001 端口，与 FastAPI 服务（8000）隔离
+# ChromaDB 运行在独立端口，与 FastAPI（8011）隔离
 client = chromadb.HttpClient(
-    host="localhost",
-    port=8000
+    host=settings.CHROMA_HOST,
+    port=settings.CHROMA_PORT
 )
 
+# 数据质量规则向量库（原有，用于规则存储）
 vector_store = Chroma(
     client=client,
     collection_name="data_quality_rules",
+    embedding_function=embedding
+)
+
+# 知识库向量库（用于 RAG 检索增强）
+knowledge_vector_store = Chroma(
+    client=client,
+    collection_name="knowledge_base",
     embedding_function=embedding
 )

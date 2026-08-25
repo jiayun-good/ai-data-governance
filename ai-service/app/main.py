@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from api import rule
+from api import knowledge
 from service import embedding_service
 
 
@@ -13,6 +14,12 @@ app.include_router(
     rule.router,
     prefix="/ai/rule",
     tags=["AI规则"]
+)
+
+app.include_router(
+    knowledge.router,
+    prefix="/ai/knowledge",
+    tags=["AI知识库"]
 )
 
 
