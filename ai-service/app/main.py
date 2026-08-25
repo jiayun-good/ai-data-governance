@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from api import rule
+from service import embedding_service
 
 
 app = FastAPI(
@@ -20,3 +21,26 @@ def index():
     return {
         "msg":"AI service running"
     }
+
+@app.get("/test/embedding")
+def embedding_test():
+
+    return embedding_service.test_embedding(
+        "用户表名称不能为空"
+    )
+
+@app.post("/add")
+def add(text:str):
+
+    return embedding_service.add_rule(
+        text,
+        {
+            "type":"quality_rule"
+        }
+    )
+
+
+@app.get("/search")
+def search(q:str):
+
+    return embedding_service.search_rule(q)

@@ -1,2 +1,5 @@
 .DS_Store
 .idea
+
+# ChromaDB local storage
+ai-service/chroma_db/
