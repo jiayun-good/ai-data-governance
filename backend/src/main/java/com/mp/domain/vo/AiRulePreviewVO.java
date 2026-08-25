@@ -27,4 +27,7 @@ public class AiRulePreviewVO {
 
     @Schema(description = "AI生成的规则描述")
     private String description;
+
+    @Schema(description = "对话id")
+    private String sessionId;
 }

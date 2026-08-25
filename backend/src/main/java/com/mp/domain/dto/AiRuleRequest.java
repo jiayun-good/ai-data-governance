@@ -12,4 +12,7 @@ public class AiRuleRequest {
 
     @Schema(description = "业务描述", example = "用户表的名称列不能为空")
     private String description;
+
+    @Schema(description = "AI上下文会话ID", example = "1")
+    private String sessionId;
 }

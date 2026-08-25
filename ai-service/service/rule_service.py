@@ -2,102 +2,89 @@ import json
 import re
 
 from service.llm_service import chat
+from prompt.rule_prompt import (
+    build_analyze_table_prompt,
+    build_detect_context_switch_prompt,
+    build_generate_rule_prompt,
+)
 
 
 def analyze_table(desc: str, tables: list[str]) -> dict:
     """
-    第一步：让 AI 从表名列表中选出最匹配业务描述的表。
+    让 AI 从表名列表中选出最匹配业务描述的表。
 
     :param desc:   用户自然语言描述，如 "用户表的名称列不能为空"
     :param tables: 数据源中所有表名，如 ["tb_user", "tb_order", "sys_config"]
     :return:       {"table": "tb_user"}
     """
     tables_text = "\n".join([f"- {t}" for t in tables])
-
-    prompt = f"""你是一个数据治理专家。根据用户的业务描述，从以下表名列表中选出最相关的一张表。
-
-## 业务描述
-{desc}
-
-## 可选表名
-{tables_text}
-
-## 要求
-1. 只能从上面的表名列表中选择一张，必须使用原始表名，不要修改
-2. 根据表名的语义来匹配（例如 "用户表" 可能对应 "tb_user"、"sys_user"、"user" 等）
-3. 如果没有匹配的表，table 返回空字符串
-
-请严格按照以下JSON格式返回，不要包含任何其他文字或markdown标记：
-{{"table": "表名"}}
-"""
+    prompt = build_analyze_table_prompt(desc, tables_text)
 
     result = chat(prompt)
     json_str = _extract_json(result)
     return json.loads(json_str)
 
 
-def generate_rule(desc: str, table: str, columns: list[dict]) -> dict:
+def detect_context_switch(desc: str, current_table: str, tables: list[str]) -> dict:
+    """
+    检测用户是否想切换到不同的表。
+
+    流程：用户输入 → 读取当前表 → AI 判断是否切换 →
+      - 否 → 继续使用当前表
+      - 是 → 调用 analyze_table() 重新匹配
+
+    :param desc:          用户新的业务描述
+    :param current_table: 上一轮对话中确定的表名
+    :param tables:        数据源中所有表名
+    :return:              {"table": "表名", "switched": bool}
+    """
+    prompt = build_detect_context_switch_prompt(desc, current_table)
+
+    result = chat(prompt)
+    json_str = _extract_json(result)
+    data = json.loads(json_str)
+
+    if not data.get("switched", False):
+        return {"table": current_table, "switched": False}
+
+    # 确认切换，调用 analyze_table 重新匹配
+    analyze_result = analyze_table(desc, tables)
+    return {"table": analyze_result.get("table", ""), "switched": True}
+
+
+def select_table(desc: str, tables: list[str],
+                 history: list[dict] = None,
+                 current_table: str = None) -> dict:
+    """
+    智能表选择入口：根据上下文决定是复用当前表还是重新匹配。
+
+    :param desc:          用户自然语言描述
+    :param tables:        数据源中所有表名
+    :param history:       对话历史
+    :param current_table: 上一轮确定的表名（None 表示首次对话）
+    :return:              {"table": "tb_user"}
+    """
+    if current_table and current_table in tables:
+        result = detect_context_switch(desc, current_table, tables)
+        return {"table": result["table"]}
+
+    # 首次对话或 currentTable 无效，直接让 AI 匹配
+    return analyze_table(desc, tables)
+
+
+def generate_rule(desc: str, table: str, columns: list[dict], history: list[dict] = None) -> dict:
     """
     第二步：根据已确定的表名 + 字段元数据，生成数据质量规则。
 
     :param desc:    用户自然语言描述
     :param table:   AI 选出的表名，如 "tb_user"
     :param columns: 该表的字段列表，如 [{"columnName":"name","dataType":"VARCHAR",...}]
+    :param history: 对话历史，如 [{"user":"...","assistant":"..."}]
     :return:        规则 JSON dict
     """
     columns_text = _build_columns_text(columns)
-
-    prompt = f"""你是一个专业的数据治理专家。请根据用户的业务描述，结合提供的字段元数据，生成一条数据质量规则。
-
-## 业务描述
-{desc}
-
-## 表名
-{table}
-
-## 字段信息
-{columns_text}
-
-## 可用的规则类型(ruleType)
-- NOT_NULL：非空校验（检测 NULL 或空字符串）
-- UNIQUE：唯一性校验（检测重复值）
-- LENGTH：长度校验（字符串字符数的边界）
-- RANGE：范围校验（数值型字段的 min/max 边界）
-- REGEX：正则校验（正则表达式匹配，如手机号、邮箱等固定格式）
-- ENUM：枚举校验（值必须在指定列表中）
-
-## 规则配置(ruleConfig)格式
-根据规则类型，ruleConfig 的字段不同：
-- NOT_NULL：{{}}
-- UNIQUE：{{}}
-- LENGTH：{{"minLength": 最小长度, "maxLength": 最大长度}}
-- RANGE：{{"min": 最小值, "max": 最大值}}
-- REGEX：{{"pattern": "正则表达式"}}
-- ENUM：{{"values": ["值1", "值2", "值3"]}}
-
-## 选型优先级（严格按顺序判断，命中即停）
-1. 描述涉及"不能为空"、"必填"、"非空" → 必须用 NOT_NULL
-2. 描述涉及"不能重复"、"唯一" → 必须用 UNIQUE
-3. 描述涉及字符串长度限制（如"名称2到20字"、"长度不超过50"） → 必须用 LENGTH
-4. 描述涉及数值范围（年龄、金额、数量等的大小边界） → 必须用 RANGE
-5. 描述涉及固定格式（手机号、邮箱、身份证等正则可表达的模式） → 用 REGEX
-6. 描述涉及值的范围是有限枚举（如"性别只能是男或女"、"状态只能是启用或禁用"） → 用 ENUM
-
-## 要求
-1. column 必须是上面字段信息中实际存在的字段名，不要修改
-2. 根据业务语义选择最合适的规则类型
-3. 生成简洁明了的规则名称(ruleName)
-4. ruleConfig 必须是JSON对象，不是字符串
-
-请严格按照以下JSON格式返回，不要包含任何其他文字或markdown标记：
-{{
-    "ruleName": "规则名称",
-    "ruleType": "规则类型",
-    "column": "实际字段名",
-    "ruleConfig": {{}},
-    "description": "规则描述"
-}}
-"""
+    history_text = _build_history_text(history)
+    prompt = build_generate_rule_prompt(desc, table, columns_text, history_text)
 
     result = chat(prompt)
     json_str = _extract_json(result)
@@ -106,6 +93,18 @@ def generate_rule(desc: str, table: str, columns: list[dict]) -> dict:
     # 补充 table 字段（由 Java 端已确定，不需要 AI 再猜）
     data["table"] = table
     return data
+
+
+def _build_history_text(history: list[dict] | None) -> str:
+    """将对话历史格式化为 prompt 中的上下文段落"""
+    if not history:
+        return ""
+    lines = ["\n## 之前的对话记录"]
+    for msg in history:
+        lines.append(f"- 用户：{msg.get('user', '')}")
+        lines.append(f"- 助手：{msg.get('assistant', '')}")
+    lines.append("\n请参考以上对话记录来理解用户的意图和上下文。\n")
+    return "\n".join(lines)
 
 
 def _build_columns_text(columns: list[dict]) -> str:
