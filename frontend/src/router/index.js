@@ -25,6 +25,12 @@ const routes = [
         meta: { title: '规则管理' }
       },
       {
+        path: 'knowledge',
+        name: 'Knowledge',
+        component: () => import('../views/Knowledge.vue'),
+        meta: { title: '知识库管理' }
+      },
+      {
         path: 'ai',
         name: 'AiAssistant',
         component: () => import('../views/AiAssistant.vue'),

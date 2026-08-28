@@ -21,6 +21,7 @@ from app.schemas.knowledge_schema import (
 from service.knowledge_service import (
     add_knowledge,
     list_documents,
+    get_document_content,
     search_knowledge,
     delete_knowledge,
     update_knowledge,
@@ -52,6 +53,15 @@ def list_all():
 def search(query: str, k: int = 3):
     """检索知识：返回命中的知识片段 + 相似度分数"""
     return search_knowledge(query, k)
+
+
+@router.get("/{doc_id}")
+def get_document(doc_id: str):
+    """获取单个知识文档的完整内容（用于编辑回填）"""
+    result = get_document_content(doc_id)
+    if not result.get("success", True) and "message" in result:
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
 
 
 @router.delete("/{doc_id}")

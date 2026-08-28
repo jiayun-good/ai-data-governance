@@ -14,6 +14,10 @@
           <el-icon><Document /></el-icon>
           <span>规则管理</span>
         </el-menu-item>
+        <el-menu-item index="/knowledge">
+          <el-icon><Collection /></el-icon>
+          <span>知识库管理</span>
+        </el-menu-item>
         <el-menu-item index="/ai">
           <el-icon><ChatDotRound /></el-icon>
           <span>AI 助手</span>
@@ -34,7 +38,7 @@
 
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
-import { Monitor, Document, ChatDotRound } from '@element-plus/icons-vue'
+import { Monitor, Document, Collection, ChatDotRound } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 
 const route = useRoute()

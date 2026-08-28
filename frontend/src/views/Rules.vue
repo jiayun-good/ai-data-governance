@@ -78,11 +78,48 @@
         <el-table-column prop="status" label="状态" width="80" />
         <el-table-column prop="errorMessage" label="错误信息" min-width="140" show-overflow-tooltip />
         <el-table-column prop="createTime" label="执行时间" width="170" />
+        <el-table-column label="操作" width="100" align="center">
+          <template #default="{ row }">
+            <el-button text type="primary" size="small"
+              :disabled="!row.errorCount || row.errorCount === 0"
+              @click="openErrorDetail(row)">
+              详情
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <div style="text-align: right; margin-top: 16px">
         <el-pagination v-model:current-page="historyPage" :page-size="historySize" :total="historyTotal"
           layout="prev, pager, next" @current-change="fetchHistory" />
       </div>
+    </el-dialog>
+
+    <!-- 异常数据详情弹窗 -->
+    <el-dialog v-model="errorDetailVisible" :title="errorDetailTitle" width="900px" top="5vh">
+      <el-table :data="errorDetailList" v-loading="errorDetailLoading" stripe size="small"
+        row-key="id" @expand-change="onErrorExpandChange">
+        <el-table-column type="expand" width="40">
+          <template #default="{ row }">
+            <div class="error-detail-expand">
+              <div class="expand-title">异常数据字段详情</div>
+              <el-table :data="parseErrorData(row.errorData)" stripe size="small" class="inner-table">
+                <el-table-column prop="key" label="字段名" width="160" />
+                <el-table-column prop="value" label="字段值" min-width="200" show-overflow-tooltip />
+              </el-table>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="errorType" label="异常类型" width="140" />
+        <el-table-column prop="errorMessage" label="异常原因" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="createTime" label="产生时间" width="170" />
+      </el-table>
+      <div style="text-align: right; margin-top: 16px">
+        <el-pagination v-model:current-page="errorDetailPage" :page-size="errorDetailSize"
+          :total="errorDetailTotal" layout="prev, pager, next" @current-change="fetchErrorDetail" />
+      </div>
+      <template #footer>
+        <el-button @click="errorDetailVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
 
     <!-- 创建规则弹窗 -->
@@ -140,7 +177,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listDataSources, getTables, getColumns } from '../api/datasource'
-import { listRules, createRule, checkRule, listCheckHistory, listRuleCheckHistory } from '../api/rule'
+import { listRules, createRule, checkRule, listCheckHistory, listRuleCheckHistory, listCheckErrors } from '../api/rule'
 
 // ---- 数据源 & 表 ----
 const datasources = ref([])
@@ -165,6 +202,16 @@ const historyPage = ref(1)
 const historySize = 10
 const historyTotal = ref(0)
 let historyRuleId = null
+
+// ---- 异常数据详情 ----
+const errorDetailVisible = ref(false)
+const errorDetailTitle = ref('异常数据详情')
+const errorDetailList = ref([])
+const errorDetailLoading = ref(false)
+const errorDetailPage = ref(1)
+const errorDetailSize = 10
+const errorDetailTotal = ref(0)
+let currentDetailCheckId = null
 
 // ---- 创建规则 ----
 const createVisible = ref(false)
@@ -257,6 +304,45 @@ async function fetchHistory() {
   }
 }
 
+// ---- 异常数据详情 ----
+function openErrorDetail(row) {
+  currentDetailCheckId = row.id
+  errorDetailTitle.value = `${row.ruleName} - ${row.createTime} - 异常数据详情`
+  errorDetailPage.value = 1
+  errorDetailVisible.value = true
+  fetchErrorDetail()
+}
+
+async function fetchErrorDetail() {
+  if (!currentDetailCheckId) return
+  errorDetailLoading.value = true
+  try {
+    const res = await listCheckErrors(currentDetailCheckId, {
+      page: errorDetailPage.value,
+      size: errorDetailSize
+    })
+    const page = res.data
+    errorDetailList.value = page?.records || []
+    errorDetailTotal.value = page?.total || 0
+  } finally {
+    errorDetailLoading.value = false
+  }
+}
+
+function parseErrorData(data) {
+  if (!data) return []
+  try {
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data
+    return Object.entries(parsed).map(([key, value]) => ({ key, value }))
+  } catch {
+    return [{ key: '原始数据', value: data }]
+  }
+}
+
+function onErrorExpandChange() {
+  // 仅用于开启 row-key 的展开功能，无需额外逻辑
+}
+
 // ---- 创建规则 ----
 function openCreateDialog() {
   createForm.datasourceId = datasourceId.value
@@ -303,3 +389,23 @@ async function handleCreate() {
   }
 }
 </script>
+
+<style scoped>
+.error-detail-expand {
+  padding: 12px 16px;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.expand-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  margin-bottom: 10px;
+}
+
+.inner-table {
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+</style>

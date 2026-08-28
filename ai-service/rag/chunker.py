@@ -13,7 +13,7 @@ from app.config import settings
 
 _splitter = RecursiveCharacterTextSplitter(
     chunk_size=settings.CHUNK_SIZE,
-    chunk_overlap=settings.CHUNK_OVERLAP,
+    chunk_overlap=settings.CHUNK_OVERLAP, #切片之间的重叠长度
     separators=["\n## ", "\n### ", "\n---", "\n\n", "\n", " ", ""],
 )
 

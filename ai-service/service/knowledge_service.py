@@ -83,6 +83,42 @@ def list_documents() -> list[dict]:
     return list(docs.values())
 
 
+def get_document_content(doc_id: str) -> dict:
+    """
+    获取单个知识文档的完整内容（用于编辑回填）。
+
+    通过 doc_id 查询所有切片，按 chunk_index 排序后拼接为完整文本。
+
+    :return: {"doc_id", "title", "source", "content", "chunk_count"} 或 {"success": False}
+    """
+    collection = knowledge_vector_store._collection
+    results = collection.get(
+        where={"doc_id": doc_id},
+        include=["documents", "metadatas"]
+    )
+
+    ids = results.get("ids", [])
+    if not ids:
+        return {"success": False, "message": f"未找到 doc_id={doc_id} 的文档"}
+
+    metadatas = results.get("metadatas", [])
+    documents = results.get("documents", [])
+
+    # 按 chunk_index 排序后拼接
+    pairs = list(zip(metadatas, documents))
+    pairs.sort(key=lambda p: p[0].get("chunk_index", 0))
+    content = "\n".join(doc for _, doc in pairs)
+
+    first_meta = metadatas[0]
+    return {
+        "doc_id": doc_id,
+        "title": first_meta.get("title", ""),
+        "source": first_meta.get("source", ""),
+        "content": content,
+        "chunk_count": len(ids)
+    }
+
+
 def search_knowledge(query: str, k: int = 3) -> list[dict]:
     """检索知识（委托 retriever）"""
     return retrieve(query, k)

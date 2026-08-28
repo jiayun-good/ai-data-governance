@@ -51,8 +51,8 @@ public class AiRuleServiceImpl implements IAiRuleService {
     @Resource
     private RedisUtil redisUtil;
 
-    private static final String AI_BASE_URL = "http://localhost:8000/ai/rule";
-    private static final long SESSION_TTL = 86400; // 24小时
+    private static final String AI_BASE_URL = "http://localhost:8011/ai/rule";
+    private static final long SESSION_TTL = -1L; // -1 表示永久保存（Redis 不设置过期时间）
 
     @Override
     public Result<AiRulePreviewVO> preview(AiRuleRequest request) {
