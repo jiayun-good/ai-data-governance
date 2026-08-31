@@ -20,6 +20,7 @@ import com.mp.service.IAiRuleService;
 import com.mp.utils.RedisUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -51,7 +52,9 @@ public class AiRuleServiceImpl implements IAiRuleService {
     @Resource
     private RedisUtil redisUtil;
 
-    private static final String AI_BASE_URL = "http://localhost:8011/ai/rule";
+    // AI 服务地址（Docker 部署时由环境变量 AI_SERVICE_URL 覆盖）
+    @Value("${ai.service.base-url:http://localhost:8011}")
+    private String aiServiceBaseUrl;
     private static final long SESSION_TTL = -1L; // -1 表示永久保存（Redis 不设置过期时间）
 
     @Override
@@ -197,7 +200,7 @@ public class AiRuleServiceImpl implements IAiRuleService {
 
         try {
             String response = restTemplate.postForObject(
-                    AI_BASE_URL + "/analyze-table", analyzeRequest, String.class);
+                    aiServiceBaseUrl + "/ai/rule/analyze-table", analyzeRequest, String.class);
             if (response == null || response.isBlank()) {
                 return null;
             }
@@ -223,7 +226,7 @@ public class AiRuleServiceImpl implements IAiRuleService {
 
         try {
             return restTemplate.postForObject(
-                    AI_BASE_URL + "/generate", generateRequest, String.class);
+                    aiServiceBaseUrl + "/ai/rule/generate", generateRequest, String.class);
         } catch (Exception e) {
             throw new RuntimeException("调用AI生成规则失败：" + e.getMessage(), e);
         }

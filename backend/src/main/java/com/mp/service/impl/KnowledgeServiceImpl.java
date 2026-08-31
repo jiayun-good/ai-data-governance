@@ -10,6 +10,7 @@ import com.mp.domain.vo.KnowledgeDocVO;
 import com.mp.domain.vo.KnowledgeSearchResultVO;
 import com.mp.service.IKnowledgeService;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -28,12 +29,18 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
     @Resource
     private RestTemplate restTemplate;
 
-    private static final String AI_KNOWLEDGE_URL = "http://localhost:8011/ai/knowledge";
+    // AI 服务地址（Docker 部署时由环境变量 AI_SERVICE_URL 覆盖）
+    @Value("${ai.service.base-url:http://localhost:8011}")
+    private String aiServiceBaseUrl;
+
+    private String getAiKnowledgeUrl() {
+        return aiServiceBaseUrl + "/ai/knowledge";
+    }
 
     @Override
     public Result<List<KnowledgeDocVO>> listDocuments() {
         try {
-            String response = restTemplate.getForObject(AI_KNOWLEDGE_URL, String.class);
+            String response = restTemplate.getForObject(getAiKnowledgeUrl(), String.class);
             JSONArray arr = JSON.parseArray(response);
             List<KnowledgeDocVO> docs = new ArrayList<>();
             for (int i = 0; i < arr.size(); i++) {
@@ -55,7 +62,7 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
     public Result<Map<String, Object>> getDocument(String docId) {
         try {
             String response = restTemplate.getForObject(
-                    AI_KNOWLEDGE_URL + "/" + docId, String.class);
+                    getAiKnowledgeUrl() + "/" + docId, String.class);
             Map<String, Object> data = JSON.parseObject(response, Map.class);
             return Result.success(data);
         } catch (Exception e) {
@@ -73,7 +80,7 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
                 request.put("source", dto.getSource());
             }
             String response = restTemplate.postForObject(
-                    AI_KNOWLEDGE_URL, request, String.class);
+                    getAiKnowledgeUrl(), request, String.class);
             Map<String, Object> data = JSON.parseObject(response, Map.class);
             return Result.success(data);
         } catch (Exception e) {
@@ -93,7 +100,7 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
             HttpEntity<String> entity = new HttpEntity<>(request.toJSONString(), headers);
 
             ResponseEntity<String> response = restTemplate.exchange(
-                    AI_KNOWLEDGE_URL + "/" + docId,
+                    getAiKnowledgeUrl() + "/" + docId,
                     HttpMethod.PUT,
                     entity,
                     String.class);
@@ -107,7 +114,7 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
     @Override
     public Result<Void> deleteKnowledge(String docId) {
         try {
-            restTemplate.delete(AI_KNOWLEDGE_URL + "/" + docId);
+            restTemplate.delete(getAiKnowledgeUrl() + "/" + docId);
             return Result.success();
         } catch (Exception e) {
             return Result.error("删除知识文档失败：" + e.getMessage());
@@ -117,7 +124,7 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
     @Override
     public Result<List<KnowledgeSearchResultVO>> searchKnowledge(String query, Integer k) {
         try {
-            String url = AI_KNOWLEDGE_URL + "/search?query=" + query + "&k=" + (k != null ? k : 3);
+            String url = getAiKnowledgeUrl() + "/search?query=" + query + "&k=" + (k != null ? k : 3);
             String response = restTemplate.getForObject(url, String.class);
             JSONArray arr = JSON.parseArray(response);
             List<KnowledgeSearchResultVO> results = new ArrayList<>();
@@ -141,7 +148,7 @@ public class KnowledgeServiceImpl implements IKnowledgeService {
     public Result<Map<String, Object>> loadDirectory() {
         try {
             String response = restTemplate.postForObject(
-                    AI_KNOWLEDGE_URL + "/load-dir", null, String.class);
+                    getAiKnowledgeUrl() + "/load-dir", null, String.class);
             Map<String, Object> data = JSON.parseObject(response, Map.class);
             return Result.success(data);
         } catch (Exception e) {

@@ -4,8 +4,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 
 import com.xxl.job.core.executor.impl.XxlJobSpringExecutor;
+import org.springframework.context.annotation.Configuration;
 
-//@Configuration  //先不启用xxljon
+@Configuration  //先不启用xxljon
 public class XxlJobConfig {
 
     @Value("${xxl.job.admin.addresses}")

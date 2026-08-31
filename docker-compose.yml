@@ -1,0 +1,150 @@
+# 数据治理平台 Docker Compose 一键部署
+#
+# 使用方式（在项目根目录执行）：
+#   docker compose up -d --build     # 构建并后台启动全部服务
+#   docker compose ps                # 查看服务状态
+#   docker compose logs -f backend   # 跟踪某个服务日志
+#   docker compose down              # 停止并删除容器（数据卷保留）
+#   docker compose down -v           # 停止并删除容器 + 数据卷（数据清空）
+#
+# 访问入口：
+#   前端      http://localhost:5173   （默认账号 admin / 123456）
+#   后端 API  http://localhost:8081/api（Swagger: /api/swagger-ui/index.html）
+#   AI 服务   http://localhost:8011   （Swagger: /docs）
+#   ChromaDB  http://localhost:8001
+#
+# 说明：
+#   - 容器间通过服务名互联（mysql / redis / chromadb / ai-service / backend），
+#     不受宿主机端口映射影响；左侧端口被占用时只改映射值即可。
+#   - AI 服务的 API_KEY 等敏感配置通过 env_file 注入，不固化进镜像。
+name: ai-data-governance
+
+services:
+  # ================= 基础设施 =================
+  # MySQL 已切换为 Windows 宿主机本机 MySQL（host.docker.internal:3306），
+  # 如需恢复 Docker MySQL，取消下方注释并删除 backend 中 MYSQL_HOST/MYSQL_PORT 环境变量即可。
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: dg-mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: "123456"
+  #     MYSQL_DATABASE: data_governance
+  #     TZ: Asia/Shanghai
+  #   command:
+  #     - --character-set-server=utf8mb4
+  #     - --collation-server=utf8mb4_unicode_ci
+  #   ports:
+  #     - "3307:3306"         # 本机 3306 已被本地 MySQL 占用，故映射到 3307；容器间仍走 3306
+  #   volumes:
+  #     - mysql-data:/var/lib/mysql
+  #     # 首次启动自动建库建表 + 初始化默认用户
+  #     - ./backend/src/main/resources/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   networks: [dg-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: dg-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"          # 若本机 6379 被占用，改左侧端口即可
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [dg-net]
+
+  chromadb:
+    build: ./docker/chromadb
+    container_name: dg-chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"          # 容器内固定 8000，宿主 8001 仅用于调试
+    volumes:
+      - chroma-data:/data     # ChromaDB 持久化目录为 /data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v2/heartbeat', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks: [dg-net]
+
+  # ================= AI 服务（FastAPI + RAG）=================
+  ai-service:
+    build: ./ai-service
+    container_name: dg-ai-service
+    restart: unless-stopped
+    # API_KEY / MODEL / BASE_URL 等敏感配置从 .env 注入，不写死
+    env_file:
+      - ./ai-service/.env
+    environment:
+      CHROMA_HOST: chromadb      # 覆盖 .env 中的 localhost
+      CHROMA_PORT: "8000"
+    ports:
+      - "8011:8011"
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8011/', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks: [dg-net]
+
+  # ================= 后端（Spring Boot）=================
+  backend:
+    build: ./backend
+    container_name: dg-backend
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: host.docker.internal   # 连接 Windows 本机 MySQL
+      MYSQL_PORT: "3306"
+      REDIS_HOST: redis
+      AI_SERVICE_URL: http://ai-service:8011
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # 供"业务数据源"指向宿主机时使用
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8081 && echo ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks: [dg-net]
+
+  # ================= 前端（Nginx 托管静态资源）=================
+  frontend:
+    build: ./frontend
+    container_name: dg-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"            # 保持与开发环境一致的访问端口
+    depends_on:
+      - backend
+    networks: [dg-net]
+
+volumes:
+  redis-data:
+  chroma-data:
+
+networks:
+  dg-net:
+    driver: bridge

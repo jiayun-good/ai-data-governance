@@ -17,6 +17,7 @@
 9. [推荐启动顺序](#九推荐启动顺序)
 10. [核心接口清单](#十核心接口清单)
 11. [常见问题排查](#十一常见问题排查)
+12. [Docker Compose 一键部署（推荐）](#十二docker-compose-一键部署推荐)
 
 ---
 
@@ -25,7 +26,7 @@
 ```
 ┌─────────────┐   /api 代理    ┌──────────────┐   HTTP 透传   ┌──────────────────┐
 │  前端 Vue 3  │ ────────────▶ │ 后端 Spring  │ ────────────▶ │  AI 服务 FastAPI  │
-│  Vite :5173  │               │  Boot :8081  │               │      :8000        │
+│  Vite :5173  │               │  Boot :8081  │               │      :8011        │
 └─────────────┘               └──────┬───────┘               └───────┬──────────┘
                                      │                               │
                               ┌──────┴──────┐              ┌─────────┴─────────┐
@@ -43,9 +44,9 @@
 
 - 前端（5173）通过 Vite 代理将 `/api` 请求转发到后端（8081）；
 - 后端（8081，context-path 为 `/api`）负责业务逻辑、鉴权（JWT）、规则执行；
-- 后端通过 `RestTemplate` **硬编码调用 AI 服务 `http://localhost:8000`**（见 `AiRuleServiceImpl.java`、`KnowledgeServiceImpl.java`），因此 **AI 服务必须监听 8000 端口，不可随意更改**；
+- 后端通过 `RestTemplate` 调用 AI 服务（地址在 `application.yml` 的 `ai.service.base-url` 配置，默认 `http://localhost:8011`，Docker 部署时由环境变量 `AI_SERVICE_URL` 覆盖），因此 **AI 服务默认监听 8011 端口**；
 - AI 服务负责智能选表、规则生成（调用通义千问），并通过 ChromaDB 做 RAG 知识检索增强；
-- ChromaDB 是独立的向量数据库进程，端口由 `ai-service/.env` 中的 `CHROMA_PORT` 指定（默认 8000，但会与 FastAPI 冲突，**推荐改为 8001**，详见下文）。
+- ChromaDB 是独立的向量数据库进程：**本地部署**时端口由 `ai-service/.env` 中的 `CHROMA_PORT` 指定（推荐 8001，与 AI 服务 8011 错开）；**Docker 部署**时容器内固定 8000、宿主映射 8001，由 docker-compose 环境变量 `CHROMA_PORT=8000` 指向容器内端口，无需修改 `.env`。
 
 ---
 
@@ -70,7 +71,7 @@
 | Python | 3.10 ~ 3.12 | AI 服务（依赖 `torch`、`transformers` 等，建议 3.10+） |
 | MySQL | 8.x | 业务数据库 |
 | Redis | 任意稳定版 | 会话 / 缓存（使用 **DB 1**） |
-| Docker | 可选 | 用于快速启动 MySQL、Redis、ChromaDB |
+| Docker | 可选 | 一键部署推荐方式（需本机 MySQL） |
 
 ---
 
@@ -80,33 +81,40 @@
 |------|------|------|
 | 前端 Vite Dev Server | 5173 | `npm run dev` 启动 |
 | 后端 Spring Boot | 8081 | 接口前缀 `/api`，Swagger 文档同端口 |
-| **AI 服务 FastAPI** | **8000** | **后端硬编码调用，不可更改** |
-| ChromaDB 向量库 | 8001（推荐） | 由 `.env` 中 `CHROMA_PORT` 决定，须与 AI 服务端口区分 |
+| **AI 服务 FastAPI** | **8011** | 由 `ai.service.base-url` 配置（默认 8011），Docker 部署用 `AI_SERVICE_URL` 覆盖 |
+| ChromaDB 向量库 | 8001（宿主映射） | 本地部署由 `.env` 中 `CHROMA_PORT` 决定（推荐 8001）；Docker 部署容器内 8000 → 宿主 8001 |
 | MySQL | 3306 | 库名 `data_governance`，账号 `root / 123456`（可改配置） |
 | Redis | 6379 | 使用 DB 1（`application.yml` 中 `database: 1`） |
 
-> ⚠️ **端口冲突提示**：`ai-service/.env` 中 `CHROMA_PORT` 默认值为 `8000`，与 AI 服务（FastAPI）端口相同，两者不能同时占用 8000。**请将 ChromaDB 端口改为 8001（或其他空闲端口），并保持 `.env` 与 Docker 映射一致。**
+> ⚠️ **端口冲突提示**：本地部署时，`ai-service/.env` 中 `CHROMA_PORT` 须与 AI 服务（8011）错开，**推荐设为 8001**；Docker 部署无需改 `.env`（compose 已通过环境变量指向容器内端口）。
 
 ---
 
 ## 五、基础设施启动（MySQL / Redis / ChromaDB）
 
-以下均以 Docker 方式启动（也可使用本机安装的 MySQL / Redis 替代，只需保证连接配置一致）。
+以下为本地手动部署（非 Docker Compose）的基础设施启动方式。**推荐直接使用本机安装的 MySQL / Redis**，再启动 AI / 后端 / 前端服务；如需完整 Docker 一键部署，见第十二节。
 
-### 5.1 MySQL
+### 5.1 MySQL（推荐使用本机安装）
+
+使用本机 MySQL 时，只需执行项目一体化初始化脚本（建库 + 6 张业务表 + 默认用户，幂等）：
+
+```powershell
+mysql --user=root --password=123456 --host=127.0.0.1 --port=3306 --default-character-set=utf8mb4 -e "source d:/self_study/ai/ai-data-governance/backend/src/main/resources/sql/init.sql"
+```
+
+> 若账号密码与 [application.yml](backend/src/main/resources/application.yml) 不一致，需同步修改配置中的 `MYSQL_USERNAME` / `MYSQL_PASSWORD`。
+
+如确实需要 Docker 方式运行 MySQL：
 
 ```powershell
 docker run -d --name mysql8 -p 3306:3306 `
   -e MYSQL_ROOT_PASSWORD=123456 `
   -e MYSQL_DATABASE=data_governance `
+  -v d:/self_study/ai/ai-data-governance/backend/src/main/resources/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro `
   mysql:8
 ```
 
-> 若使用已有 MySQL，请手动创建数据库并保持与 [application.yml](backend/src/main/resources/application.yml) 中的账号密码一致：
->
-> ```sql
-> CREATE DATABASE IF NOT EXISTS data_governance DEFAULT CHARACTER SET utf8mb4;
-> ```
+> 首次启动会自动执行挂载的 init.sql 完成建库建表（也可启动后手动执行上文脚本）。
 
 ### 5.2 Redis
 
@@ -119,7 +127,13 @@ docker run -d --name redis -p 6379:6379 redis
 ### 5.3 ChromaDB（向量数据库）
 
 ```powershell
-docker run -d -p 8001:8000 --name chromadb chromadb/chroma
+# 本地部署时建议直接使用项目的 docker-compose（见第十二节，含健康检查优化）
+# 如单独启动，注意：官方镜像无 python 命令，需使用项目自定义镜像或手动验证
+cd d:\self_study\ai\ai-data-governance
+# 构建自定义 ChromaDB 镜像（安装 python3 供 health check 使用）
+docker build -t ai-data-governance-chromadb docker/chromadb
+# 启动并映射端口
+docker run -d -p 8001:8000 --name chromadb -v chroma-data:/data ai-data-governance-chromadb
 ```
 
 启动后**同步修改** `ai-service/.env` 中的端口配置：
@@ -129,7 +143,7 @@ CHROMA_HOST="localhost"
 CHROMA_PORT="8001"
 ```
 
-> 验证：浏览器访问 `http://localhost:8001/api/v2/` 应返回 Chroma 相关信息。
+> 验证：浏览器访问 `http://localhost:8001/api/v2/heartbeat` 应返回 `nanosecond heartbeat` JSON。
 
 ---
 
@@ -188,22 +202,22 @@ uvicorn app.main:app --host 0.0.0.0 --port 8011
 
 ### 6.4 验证服务
 
-- 健康检查：`http://localhost:8000/` 应返回 `{"msg":"AI service running"}`
-- 在线接口文档（Swagger UI）：`http://localhost:8000/docs`
-- 嵌入式测试：`http://localhost:8000/test/embedding?text=用户表名称不能为空`（返回向量信息）
+- 健康检查：`http://localhost:8011/` 应返回 `{"msg":"AI service running"}`
+- 在线接口文档（Swagger UI）：`http://localhost:8011/docs`
+- 嵌入式测试：`http://localhost:8011/test/embedding?text=用户表名称不能为空`（返回向量信息）
 
 ### 6.5 首次使用：初始化 RAG 知识库
 
 项目预置了 5 份数据质量治理领域知识文档（位于 [ai-service/rag/knowledge](ai-service/rag/knowledge)）。首次启动后需将其加载进 ChromaDB，否则 AI 生成规则时无知识参考：
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/ai/knowledge/load-dir"
+Invoke-RestMethod -Method Post -Uri "http://localhost:8011/ai/knowledge/load-dir"
 ```
 
 或使用 curl：
 
 ```bash
-curl -X POST http://localhost:8000/ai/knowledge/load-dir
+curl -X POST http://localhost:8011/ai/knowledge/load-dir
 ```
 
 返回示例：
@@ -212,7 +226,7 @@ curl -X POST http://localhost:8000/ai/knowledge/load-dir
 {"success": true, "loaded": 5, "documents": ["规则类型详解.md", "..."]}
 ```
 
-加载后可通过 `GET http://localhost:8000/ai/knowledge` 查看知识库中的文档列表。
+加载后可通过 `GET http://localhost:8011/ai/knowledge` 查看知识库中的文档列表。
 
 ---
 
@@ -220,26 +234,22 @@ curl -X POST http://localhost:8000/ai/knowledge/load-dir
 
 ### 7.1 准备数据库
 
-1. 创建数据库 `data_governance`（见 5.1）；
-2. 创建业务表（共 6 张）：
+1. 创建数据库与全部业务表（共 6 张），**直接执行项目自带的一体化脚本**即可（幂等，可重复执行）：
 
-   | 表名 | 用途 | 建表脚本 |
-   |------|------|----------|
-   | `sys_user` | 系统用户（登录） | 手动创建 |
-   | `data_source` | 数据源信息 | 手动创建 |
-   | `data_quality_rule` | 数据质量规则 | 手动创建 |
-   | `data_quality_check_record` | 质量检查记录 | 手动创建 |
-   | `data_quality_error` | 质量异常数据 | 手动创建 |
-   | `chat_session` | AI 聊天会话索引 | ✅ 已提供 [chat_session.sql](backend/src/main/resources/sql/chat_session.sql) |
-
-3. 插入默认登录用户（登录逻辑为**明文密码比对**，可直接插入明文）：
-
-   ```sql
-   INSERT INTO sys_user (username, password, nickname, status)
-   VALUES ('admin', '123456', '管理员', 1);
+   ```powershell
+   mysql --user=root --password=123456 --host=127.0.0.1 --port=3306 --default-character-set=utf8mb4 -e "source d:/self_study/ai/ai-data-governance/backend/src/main/resources/sql/init.sql"
    ```
 
-   > `sys_user` 表字段：`id`、`username`、`password`、`nickname`、`status`、`create_time`、`update_time`。
+   | 表名 | 用途 |
+   |------|------|
+   | `sys_user` | 系统用户（登录） |
+   | `data_source` | 数据源信息 |
+   | `data_quality_rule` | 数据质量规则 |
+   | `data_quality_check_record` | 质量检查记录 |
+   | `data_quality_error` | 质量异常数据 |
+   | `chat_session` | AI 聊天会话索引 |
+
+2. 脚本自动插入默认登录用户（登录逻辑为**明文密码比对**）：`admin / 123456`。
 
 ### 7.2 修改配置（如与本地环境不符）
 
@@ -325,10 +335,10 @@ npm run preview    # 本地预览构建产物
 
 | 步骤 | 服务 | 命令/方式 | 验证 |
 |------|------|-----------|------|
-| 1 | MySQL | Docker 或本机 | `mysql -uroot -p123456` 可连接 |
+| 1 | MySQL | 本机 MySQL 或 Docker | `mysql -uroot -p123456` 可连接 |
 | 2 | Redis | Docker 或本机 | `redis-cli ping` 返回 PONG |
-| 3 | ChromaDB | `docker run -d -p 8001:8000 --name chromadb chromadb/chroma` | 访问 `http://localhost:8001` |
-| 4 | **AI 服务** | `uvicorn app.main:app --host 0.0.0.0 --port 8000` | 访问 `http://localhost:8000/` 返回 `AI service running`；执行 `/ai/knowledge/load-dir` 初始化知识库 |
+| 3 | ChromaDB | 自定义镜像 `docker run -d -p 8001:8000 -v chroma-data:/data ai-data-governance-chromadb`（构建见 5.3） | 访问 `http://localhost:8001/api/v2/heartbeat` |
+| 4 | **AI 服务** | `uvicorn app.main:app --host 0.0.0.0 --port 8011` | 访问 `http://localhost:8011/` 返回 `AI service running`；执行 `/ai/knowledge/load-dir` 初始化知识库 |
 | 5 | 后端 | `mvn spring-boot:run`（8081） | 访问 Swagger 文档 |
 | 6 | 前端 | `npm run dev`（5173） | 浏览器打开 `http://localhost:5173` 登录使用 |
 
@@ -357,7 +367,7 @@ npm run preview    # 本地预览构建产物
 | GET | `/knowledge/search` | 知识检索 |
 | POST | `/knowledge/load-dir` | 批量加载知识目录 |
 
-### 10.2 AI 服务接口（`http://localhost:8000`）
+### 10.2 AI 服务接口（`http://localhost:8011`）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -387,7 +397,7 @@ npm run preview    # 本地预览构建产物
 
 | 现象 | 原因 | 解决办法 |
 |------|------|----------|
-| 接口返回 `{"detail":"Not Found"}` | 请求打到了 FastAPI（8000）而非 Spring Boot（8081），或反之 | 确认端口：业务接口在 `localhost:8081/api/...`，AI 接口在 `localhost:8000/ai/...` |
+| 接口返回 `{"detail":"Not Found"}` | 请求打到了 FastAPI（8011）而非 Spring Boot（8081），或反之 | 确认端口：业务接口在 `localhost:8081/api/...`，AI 接口在 `localhost:8011/ai/...` |
 | AI 服务启动后 ChromaDB 连不上 | `CHROMA_PORT` 与 Docker 映射端口不一致，或与 FastAPI 端口冲突 | 统一 `.env` 中 `CHROMA_PORT` 与 `docker run -p` 映射（推荐 8001） |
 | AI 生成规则无知识参考 | 知识库尚未初始化 | 调用 `POST /ai/knowledge/load-dir` 加载预置知识文档 |
 | 登录返回 401 / 未授权 | Token 缺失或过期 | 重新调用 `/sys-user/login` 获取新 Token；前端自动跳转登录页 |
@@ -399,20 +409,110 @@ npm run preview    # 本地预览构建产物
 
 ---
 
+## 十二、Docker Compose 一键部署（推荐）
+
+项目已提供完整的 `docker-compose.yml`，可一键构建并启动全部服务（前端 Nginx + 后端 + AI 服务 + Redis + ChromaDB）。**MySQL 使用宿主机本机安装的 MySQL**（避免与本机数据库端口冲突，数据也便于管理），容器通过 `host.docker.internal` 访问。
+
+### 12.1 前置要求
+
+- 已安装 Docker Engine 20.10+ 与 Docker Compose v2（`docker compose version` 可验证）；
+- **本机已安装并运行 MySQL 8.x**（服务端口 3306），账号密码 `root / 123456`（可通过 `application.yml` 环境变量 `MYSQL_USERNAME` / `MYSQL_PASSWORD` 调整）；
+- 本机 MySQL 需完成**一次性初始化**（建库建表 + 默认账号 + 容器访问授权），见 12.2；
+- 本机 6379 / 5173 / 8081 / 8011 / 8001 端口空闲（被占用时修改 `docker-compose.yml` 中映射的**左侧端口**即可，容器间通信不受影响）。
+
+### 12.2 一次性初始化本机 MySQL
+
+项目不再启动 Docker MySQL 容器，首次部署前需在本机 MySQL 中执行初始化脚本：
+
+```powershell
+mysql --user=root --password=123456 --host=127.0.0.1 --port=3306 --default-character-set=utf8mb4 -e "source d:/self_study/ai/ai-data-governance/backend/src/main/resources/sql/init.sql"
+```
+
+脚本会自动：建库 `data_governance`（幂等）→ 建 6 张业务表 → 插入默认用户 `admin / 123456`。
+
+然后**授权 Docker 容器访问**（容器 IP 为 172.x 网段，需允许 root 远程连接）：
+
+```sql
+CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY '123456';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+```
+
+> 💡 若本机 MySQL 的 root 密码不是 `123456`，需同时修改：① 上述 SQL；② 后端默认密码（`application.yml` 的 `MYSQL_PASSWORD` 或 compose 中 backend 环境变量）。
+
+### 12.3 一键启动
+
+在项目根目录执行：
+
+```powershell
+# 构建镜像并后台启动全部服务（首次构建耗时较长：AI 服务需安装依赖）
+docker compose up -d --build
+
+# 查看服务状态（等待 redis / chromadb / ai-service / backend 全部 healthy）
+docker compose ps
+```
+
+> 若首次执行报 `Container dg-chromadb unhealthy`，请先 `docker compose down` 后重试；启动过程自动完成服务健康检查与依赖排序（backend 依赖 ai-service，ai-service 依赖 chromadb）。
+
+启动完成后访问：
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| 前端 | http://localhost:5173 | 默认账号 `admin / 123456` |
+| 后端 Swagger | http://localhost:8081/api/swagger-ui/index.html | 接口文档 |
+| AI 服务 | http://localhost:8011/docs | FastAPI Swagger |
+| ChromaDB | http://localhost:8001/api/v2/heartbeat | 向量库调试 |
+
+> 💡 **首次使用需初始化 RAG 知识库**：登录系统后，在知识库页面点击「加载预置知识」；或直接调用接口：
+>
+> ```powershell
+> Invoke-RestMethod -Method Post -Uri "http://localhost:8011/ai/knowledge/load-dir"
+> ```
+>
+> 返回 `total_docs: 5, total_chunks: 57` 即成功。知识库数据保存在命名卷 `chroma-data` 中，之后重启容器不会丢失。
+
+### 12.4 常用运维命令
+
+```powershell
+docker compose ps                    # 查看服务状态
+docker compose logs -f backend       # 跟踪后端日志（可换成 ai-service / frontend 等）
+docker compose restart backend       # 重启单个服务
+docker compose down                  # 停止全部服务（数据卷保留）
+docker compose down -v               # 停止并删除数据卷（Redis / Chroma 数据将清空）
+docker compose up -d --build backend # 修改代码后仅重建并重启后端
+```
+
+### 12.5 容器化注意事项
+
+| 事项 | 说明 |
+|------|------|
+| API_KEY 配置 | 直接修改 `ai-service/.env` 后执行 `docker compose up -d --build ai-service` 重启即可（敏感配置通过 `env_file` 注入，不固化进镜像） |
+| AI 服务地址 | 后端在容器内通过 `AI_SERVICE_URL=http://ai-service:8011` 调用 AI 服务，无需修改 Java 代码 |
+| MySQL 连接 | 后端通过 `MYSQL_HOST=host.docker.internal` + `MYSQL_PORT=3306` 连接宿主机本机 MySQL（compose 已为 backend 配置 `extra_hosts: host-gateway`） |
+| 业务数据源地址 | 在「数据源管理」中配置业务库时：库在宿主机本机 MySQL 上填 `host.docker.internal:3306`；库在其它远程服务器上填对应 IP:端口（注意容器内 `127.0.0.1` 指向容器自身，不可用） |
+| ChromaDB 镜像 | 官方镜像无 `python` 命令导致 health check 失败，项目使用自定义镜像 `docker/chromadb`（基于官方镜像安装 python3）；数据卷挂载路径为 `/data` |
+| 端口冲突 | 本机已有 Redis 等时，修改 `docker-compose.yml` 中 `ports` 的左侧映射值（如 `6379:6379` → `6380:6379`），容器间通信不受影响 |
+| AI 服务镜像 | 使用精简依赖清单 `ai-service/requirements-docker.txt`（剔除了 torch/transformers 等未使用的重包），镜像体积与构建时间显著降低 |
+| 恢复 Docker MySQL | 如需改回 Docker 内置 MySQL：取消 `docker-compose.yml` 中 `mysql:` 服务注释，删除 backend 的 `MYSQL_HOST` / `MYSQL_PORT` 环境变量，并在 `volumes` 中恢复 `mysql-data` |
+
+---
+
 ## 附：项目目录结构
 
 ```
 ai-data-governance/
 ├── frontend/          # Vue 3 前端（Vite + Element Plus + Pinia）
 ├── backend/           # Spring Boot 后端（Java 17 + MyBatis-Plus + MySQL + Redis）
-│   └── src/main/resources/sql/chat_session.sql   # 会话表建表脚本
-└── ai-service/        # AI 服务（FastAPI + LangChain + 通义千问 + ChromaDB RAG）
-    ├── app/           # FastAPI 应用入口与配置（config.py 读取 .env）
-    ├── api/           # /ai/rule 与 /ai/knowledge 路由
-    ├── service/       # LLM 调用、规则生成、知识库 CRUD 业务
-    ├── prompt/        # Prompt 模板
-    ├── rag/           # RAG：chunker 切片、retriever 检索、knowledge 预置知识库
-    ├── vector/        # ChromaDB 客户端与向量集合
-    ├── .env           # AI 服务环境变量（API Key / 模型 / Chroma 端口）
-    └── requirements.txt
+│   └── src/main/resources/sql/init.sql   # 建库建表 + 默认用户一体化脚本
+├── ai-service/        # AI 服务（FastAPI + LangChain + 通义千问 + ChromaDB RAG）
+│   ├── app/           # FastAPI 应用入口与配置（config.py 读取 .env）
+│   ├── api/           # /ai/rule 与 /ai/knowledge 路由
+│   ├── service/       # LLM 调用、规则生成、知识库 CRUD 业务
+│   ├── prompt/        # Prompt 模板
+│   ├── rag/           # RAG：chunker 切片、retriever 检索、knowledge 预置知识库
+│   ├── vector/        # ChromaDB 客户端与向量集合
+│   ├── .env           # AI 服务环境变量（API Key / 模型 / Chroma 端口）
+│   └── requirements.txt
+├── docker/chromadb/   # 自定义 ChromaDB 镜像（安装 python3 供健康检查）
+└── docker-compose.yml # 一键部署编排（详见第十二节）
 ```
